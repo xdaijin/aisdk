@@ -6,12 +6,21 @@
 ## 1. 模块划分（多模块项目）
 
 ```
-xxx-common        共享内核（Result、BusinessException），零 Spring 依赖，宁可小不可杂
+xxx-common        共享内核（Result、异常基类），零 Spring 依赖，宁可小不可杂
 xxx-<域>          一个限界上下文一个模块
 xxx-app           组装层：唯一可执行模块（启动类、Security、全局异常、application.yml）
 ```
 
 铁律：`app → 业务模块 → common`，业务模块之间禁止互相依赖；跨上下文协作在 app 层编排或走 RPC/事件。
+
+common 模块结构（只放跨域原语）：
+
+```
+com.example.common/
+├── Result.java                 # 统一响应（code=0 成功；只放通用码：成功/失败/401/403）
+├── BusinessException.java      # 业务异常基类（code + message）
+└── SystemException.java        # 系统异常基类（技术故障包装，用到才加）
+```
 
 ## 2. 业务模块内部四层
 
@@ -49,6 +58,8 @@ com.example.<域>/
 │   │   ├── Money.java                           #     值对象（有领域含义的入参也是它）
 │   │   └── XxxStatus.java                       #     业务枚举
 │   ├── event/                                   #   领域事件（不可变契约，与 model 平级）
+│   ├── exception/                               #   域专属异常（extends BusinessException，用到才建）
+│   │   └── InventoryNotEnoughException.java
 │   ├── repository/                              #   仓储接口（只定义不实现）
 │   │   └── query/                               #     仓储查询条件对象
 │   └── service/                                 #   领域服务/领域能力接口
@@ -106,6 +117,6 @@ com.example.<域>/
 - 常量/枚举 → 跟着所属聚合走（domain/model，枚举是聚合的属性）；**禁止建 domain/enums/ 集中目录**（诱导跨聚合复用）；枚举过多时允许 model/enums/ 子包，全项目统一一种风格；状态流转规则内聚到枚举方法里（如 canTransitTo）
 - 配置属性→所属模块 infrastructure/config；全局配置类→app
 - 异常 → `BusinessException`/`SystemException` 放 common（跨域原语）；域专属异常类型放 `<域>/domain/exception/` 且必须 extends BusinessException（用到才建）；业务错误码跟着域走按号段分配，禁止在 common 搞集中式错误码表；SDK/IO 异常在 infrastructure 包装成 SystemException，不许外泄；异常转响应只在 app 的 GlobalExceptionHandler
-- 工具类 → 先问能否做成值对象/领域服务；真需要才放 infrastructure/util
+- 工具类 → 决策顺序：① 业务逻辑？→ 做成值对象方法/领域服务，不是工具类；② 优先 Hutool/commons-lang3/JDK，禁止造轮子；③ 需要配置或依赖 Bean？→ 不是工具类，做成 infrastructure 的 @Component；④ 仅单层用的纯静态函数 → 该层的 util/ 子包；⑤ 跨模块纯函数才允许进 common。**禁止**在模块根开"第五层" util 包，**禁止**为跨层复用让 application/interfaces 依赖 infrastructure 的工具类（撞分层规则时优先用第三方库或下沉 common）
 - MQ 消费、定时任务 → 都是入站适配器，放 interfaces/consumer、interfaces/job
 - 子包用到才建（无 MQ 不建 consumer/messaging）；单域 <10 类时 application 可扁平，10+ 再按类型分包
